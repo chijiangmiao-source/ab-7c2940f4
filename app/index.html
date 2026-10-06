@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>匿名统计交付 · 额度账本</title>
+  <style>
+    :root { --bg:#0f1420; --card:#1a2233; --line:#2a3550; --fg:#e8edf7;
+            --muted:#93a0bb; --ok:#3ddc97; --warn:#ffce5a; --err:#ff6b6b; --accent:#5aa2ff; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: -apple-system, "Segoe UI", "PingFang SC",
+            "Microsoft YaHei", sans-serif; background:var(--bg); color:var(--fg); }
+    header { padding:20px 28px; border-bottom:1px solid var(--line);
+             display:flex; align-items:baseline; gap:14px; }
+    header h1 { font-size:18px; margin:0; }
+    header .sub { color:var(--muted); font-size:13px; }
+    main { padding:24px 28px; display:grid; gap:20px;
+           grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+    .card { background:var(--card); border:1px solid var(--line);
+            border-radius:12px; padding:18px 20px; }
+    .card h2 { font-size:14px; margin:0 0 14px; color:var(--muted);
+               font-weight:600; letter-spacing:.04em; }
+    .kv { display:grid; grid-template-columns:1fr auto; gap:10px 16px; font-size:15px; }
+    .kv .n { font-variant-numeric: tabular-nums; font-weight:600; }
+    .avail { color:var(--ok); } .frozen { color:var(--warn); }
+    .used { color:var(--accent); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line);
+             vertical-align: top; }
+    th { color:var(--muted); font-weight:500; }
+    td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+                     monospace; font-size:12px; word-break:break-all; }
+    .stage { display:inline-block; padding:2px 9px; border-radius:999px;
+             font-size:12px; border:1px solid var(--line); }
+    .stage-committed { color:var(--ok); border-color:var(--ok); }
+    .stage-delivered { color:var(--warn); border-color:var(--warn); }
+    .stage-accepted  { color:var(--accent); border-color:var(--accent); }
+    form { display:grid; gap:10px; }
+    label { font-size:12px; color:var(--muted); display:grid; gap:4px; }
+    input { background:#0f1626; border:1px solid var(--line); color:var(--fg);
+            border-radius:8px; padding:9px 11px; font-size:13px; }
+    button { background:var(--accent); border:0; color:#08111f; font-weight:600;
+             border-radius:8px; padding:10px 14px; cursor:pointer; font-size:14px; }
+    button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
+    .row { display:flex; gap:10px; align-items:center; }
+    #msg { font-size:13px; min-height:18px; }
+    #msg.err { color:var(--err); } #msg.ok { color:var(--ok); }
+    .wide { grid-column: 1 / -1; }
+    .pulse { display:inline-block; width:8px; height:8px; border-radius:50%;
+             background:var(--ok); margin-right:6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>匿名统计交付 · 总额度账本</h1>
+    <span class="sub"><span class="pulse"></span>状态每 1 秒自动刷新</span>
+  </header>
+  <main>
+    <section class="card">
+      <h2>额度</h2>
+      <div class="kv">
+        <span>总额度</span><span class="n" id="q-total">-</span>
+        <span>可用额度</span><span class="n avail" id="q-available">-</span>
+        <span>冻结额度（未终结保留）</span><span class="n frozen" id="q-frozen">-</span>
+        <span>已完成占用</span><span class="n used" id="q-committed">-</span>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin:14px 0 0">
+        不变量：已完成与未终结保留额之和 ≤ 总额度。
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>接收端</h2>
+      <div class="kv">
+        <span>接受交付次数（去重后发布数）</span>
+        <span class="n" id="r-count">-</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>提交交付（消耗）</h2>
+      <form id="f">
+        <label>稳定发布标识
+          <input name="publication_id" required placeholder="pub-2026-001" value="pub-001" />
+        </label>
+        <label>摘要（digest）
+          <input name="digest" required placeholder="sha256:…" value="sha256:demo-digest" />
+        </label>
+        <label>消耗额度
+          <input name="amount" type="number" min="0" required value="6" />
+        </label>
+        <div class="row">
+          <button type="submit">提交交付</button>
+          <label style="display:flex;align-items:center;gap:6px;grid-auto-flow:column">
+            <input type="checkbox" name="crash" style="width:auto" />
+            接收后断电（演练）
+          </label>
+        </div>
+        <div id="msg"></div>
+      </form>
+    </section>
+
+    <section class="card wide">
+      <h2>发布记录与接收方回执</h2>
+      <table>
+        <thead>
+          <tr><th>发布标识</th><th>摘要</th><th>消耗</th><th>发布阶段</th>
+              <th>本端投递计数</th><th>接收方回执</th></tr>
+        </thead>
+        <tbody id="pubs"><tr><td colspan="6" style="color:var(--muted)">加载中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="card wide">
+      <h2>接收端持久化交付（首份摘要与回执）</h2>
+      <table>
+        <thead>
+          <tr><th>发布标识</th><th>首份摘要</th><th>额度</th><th>冻结回执</th></tr>
+        </thead>
+        <tbody id="recv"><tr><td colspan="4" style="color:var(--muted)">加载中…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+<script>
+const stageText = {accepted:"已受理·冻结", delivered:"已交付·待记账", committed:"已完成"};
+function esc(s){ return String(s ?? "").replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function refresh() {
+  try {
+    const r = await fetch("/api/state", {cache:"no-store"});
+    const s = await r.json();
+    document.getElementById("q-total").textContent = s.quota.total;
+    document.getElementById("q-available").textContent = s.quota.available;
+    document.getElementById("q-frozen").textContent = s.quota.frozen;
+    document.getElementById("q-committed").textContent = s.quota.committed;
+    document.getElementById("r-count").textContent = s.receiver.delivered_count;
+
+    const pb = document.getElementById("pubs");
+    pb.innerHTML = s.publications.length ? "" :
+      '<tr><td colspan="6" style="color:var(--muted)">暂无发布</td></tr>';
+    for (const p of s.publications) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="mono">${esc(p.publication_id)}</td>
+        <td class="mono">${esc(p.digest)}</td>
+        <td>${p.amount}</td>
+        <td><span class="stage stage-${p.stage}">${stageText[p.stage] || p.stage}</span></td>
+        <td>${p.delivered_count}</td>
+        <td class="mono">${esc(p.receipt_id ?? "—")}</td>`;
+      pb.appendChild(tr);
+    }
+    const rv = document.getElementById("recv");
+    rv.innerHTML = s.receiver.deliveries.length ? "" :
+      '<tr><td colspan="4" style="color:var(--muted)">接收端暂无交付</td></tr>';
+    for (const d of s.receiver.deliveries) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="mono">${esc(d.publication_id)}</td>
+        <td class="mono">${esc(d.digest)}</td><td>${d.amount}</td>
+        <td class="mono">${esc(d.receipt_id)}</td>`;
+      rv.appendChild(tr);
+    }
+  } catch (e) { /* 刷新间隔内忽略瞬时错误 */ }
+}
+
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, msg = document.getElementById("msg");
+  const body = {
+    publication_id: f.publication_id.value.trim(),
+    digest: f.digest.value.trim(),
+    amount: Number(f.amount.value),
+    crash_after_receive: f.crash.checked
+  };
+  msg.className = ""; msg.textContent = "提交中…";
+  try {
+    const r = await fetch("/api/submit", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      msg.className = "ok";
+      msg.textContent = `已完成，回执 ${data.publication?.receipt_id}`;
+    } else {
+      msg.className = "err";
+      msg.textContent = `被拒绝（${r.status}）：${data.error || "未知错误"}`;
+    }
+  } catch (_) {
+    if (body.crash_after_receive) {
+      msg.className = "ok";
+      msg.textContent = "已触发接收后断电，等待服务重启自动恢复…";
+    } else { msg.className = "err"; msg.textContent = "请求失败"; }
+  }
+  refresh();
+});
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

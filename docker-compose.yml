@@ -1,0 +1,46 @@
+services:
+  # 交付页面 + 健康响应 + 额度账本 API
+  app:
+    build: .
+    image: quota-ledger:latest
+    environment:
+      TOTAL_QUOTA: ${TOTAL_QUOTA:-10}
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DATA_DIR: /data
+      AUTO_RECOVER: "1"
+    ports:
+      # 可配置宿主端口：HOST_PORT=9090 docker compose up
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      - ledger-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200 else 1)"
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    # “接收后断电”导致进程退出时，重启即按发布标识自动恢复（启动收敛）。
+    restart: unless-stopped
+
+  # verify：先构建交付页面并检查结果，再 API/HTTP 冒烟复核（含断电恢复），
+  # 同时运行代码测试；完成即退出，以退出码报告结果。
+  verify:
+    image: quota-ledger:latest
+    build: .
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      BASE_URL: http://app:8080
+      SMOKE_PORT: "18080"
+      TOTAL_QUOTA: "10"
+    command: ["python", "verify/run_verify.py"]
+    restart: "no"
+
+volumes:
+  ledger-data:

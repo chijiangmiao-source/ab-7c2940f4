@@ -13,3 +13,10 @@ __pycache__/
 .yarn-cache/
 *.pyc
 *.pyo
+
+# runtime data
+data/
+*.db
+*.db-wal
+*.db-shm
+dist/
